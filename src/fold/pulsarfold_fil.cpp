@@ -211,6 +211,28 @@ int main(int argc, const char *argv[])
     {
         std::vector<std::string> parfiles = vm["parfile"].as<std::vector<std::string>>();
         
+        /**
+         * @brief read DM from parfile
+         * 
+         */
+        for (long int k=0; k<npulsar; k++)
+        {
+            string filename = parfiles[k];
+            string line;
+            ifstream ddplan(filename);
+            int id = 0;
+            while (getline(ddplan, line))
+            {
+                vector<string> items;
+                boost::split(items, line, boost::is_any_of("\t "), boost::token_compress_on);
+                if (items[0] == "DM")
+                {
+                    dms[k] = stod(items[1]);
+                    break;
+                }
+            }
+        }
+
         double mjd_start = (tstarts[idx[0]].to_day())-0.01;
         double mjd_end = (tends[idx.back()].to_day())+1;
         double fmin = fil[0].frequency_table[0];
