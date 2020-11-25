@@ -332,7 +332,6 @@ int main(int argc, const char *argv[])
         writers[k].prepare(folders[k]);
     }
 
-    vector<float> buffer(nifs*nchans, 0.);
 	long int ntot = 0;
 	long int count = 0;
     long int bcnt1 = 0;
@@ -359,16 +358,14 @@ int main(int argc, const char *argv[])
 			{
 				count++;
 
-                fill(buffer.begin(), buffer.end(), 0.);
 				for (long int k=0; k<nifs; k++)
 				{
 					for (long int j=0; j<nchans; j++)
 					{
-						buffer[k*nchans+j] =  pcur[k*nchans+j];
+						databuf.buffer[bcnt1*nifs*nchans+k*nchans+j] =  pcur[k*nchans+j];
 					}
 				}
 
-                memcpy(&databuf.buffer[0]+bcnt1*nifs*nchans, &buffer[0], sizeof(float)*nifs*nchans);
                 bcnt1++;
 				ntot++;
                 ns_filn++;
