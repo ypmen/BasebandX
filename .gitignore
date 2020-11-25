@@ -8,7 +8,7 @@ bin
 *.libs
 libtool
 src/fold/pulsarfold
-#src/fold/pulsarfold_fil
+src/fold/pulsarfold_fil
 .vscode
 
 # http://www.gnu.org/software/automake
