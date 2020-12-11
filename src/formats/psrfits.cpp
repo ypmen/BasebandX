@@ -80,7 +80,7 @@ bool Psrfits::parse_template(const string temfile)
 
 	int status = 0;
 	fits_create_file (&fptr, (filename).c_str(), &status);
-	if (status)
+    if (status)
     {
     	cerr<<"Error: can not open file "<<filename<<endl;
     	fits_report_error(stderr, status);
