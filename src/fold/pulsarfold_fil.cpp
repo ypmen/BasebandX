@@ -26,6 +26,7 @@ unsigned int num_threads;
 int main(int argc, const char *argv[])
 {
 	int verbose = 0;
+    bool lsm = false;
 
     options_description desc{"Options"};
     desc.add_options()
@@ -42,6 +43,8 @@ int main(int argc, const char *argv[])
             ("dm,d", value<vector<double>>()->multitoken()->composing(), "Dispersion measure")
             ("telescope,k", value<string>(), "Telescope name")
             ("cont", "Input files are contiguous")
+            ("trlsm", "Using Tikhonov-regularized least square method folding algorithm")
+            ("lambda", value<double>()->default_value(1), "The regularization factor")
             ("input,f", value<vector<string>>()->multitoken()->composing(), "Input files");
 
     positional_options_description pos_desc;
@@ -63,6 +66,10 @@ int main(int argc, const char *argv[])
     if (vm.count("verbose"))
     {
         verbose = 1;
+    }
+    if (vm.count("trlsm"))
+    {
+        lsm = true;
     }
     if (vm.count("input") == 0)
     {
@@ -309,6 +316,7 @@ int main(int argc, const char *argv[])
         folders[k].nbin = vm["nbin"].as<int>();
         folders[k].npol = nifs;
         folders[k].nsblk = nsblk;
+        folders[k].lambda = vm["lambda"].as<double>();
 
         folders[k].prepare(databuf);
 
@@ -379,7 +387,10 @@ int main(int argc, const char *argv[])
                         else
                             folders[ipsr].start_epoch = (long double)fil[idx[0]].tstart+(long double)(ntot-ndump)*fil[n].tsamp/86400.;
                         
-                        folders[ipsr].run(databuf);
+                        if (!lsm)
+                            folders[ipsr].run(databuf);
+                        else
+                            folders[ipsr].runLSM(databuf);
 
                         writers[ipsr].run(folders[ipsr]);
                     }

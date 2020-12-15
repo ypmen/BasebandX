@@ -28,6 +28,7 @@ namespace Baseband
         ~PulsarFolder();
         void prepare(DataBuffer<float> &databuffer);
         void run(DataBuffer<float> &databuffer);
+        void runLSM(DataBuffer<float> &databuffer);
     public:
         int npol;
         int nbin;
@@ -35,6 +36,7 @@ namespace Baseband
         MJD start_epoch;
         Predictors predictor;
         double fold_period;
+        double lambda;
     public:
         int nchan;
         int nsubint;
@@ -45,8 +47,6 @@ namespace Baseband
         MJD epoch;
         std::vector<double> frequencies;
         std::vector<float> profiles;
-        std::vector<float> profilesTPF;
-        std::vector<int> hits;
     };
 }
 #endif /* PULSARFOLDER_H */

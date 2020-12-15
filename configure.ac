@@ -35,6 +35,9 @@ CXXFLAGS="$CXXFLAGS $OPENMP_CFLAGS"
 
 # Checks for header files.
 AC_CHECK_HEADERS([stdlib.h string.h sys/time.h unistd.h])
+AC_LANG_PUSH([C++])
+AC_CHECK_HEADERS([eigen3/Eigen/Dense])
+AC_LANG_POP([C++])
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_CHECK_HEADER_STDBOOL

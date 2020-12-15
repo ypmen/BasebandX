@@ -6,8 +6,6 @@
  * @desc [description]
  */
 
-#define FAST 1
-
 #include <iostream>
 #include <string.h>
 #include <vector>
@@ -25,6 +23,7 @@ unsigned int num_threads;
 int main(int argc, const char *argv[])
 {
 	int verbose = 0;
+    bool lsm = false;
 
     options_description desc{"Options"};
     desc.add_options()
@@ -41,6 +40,8 @@ int main(int argc, const char *argv[])
             ("dm,d", value<vector<double>>()->multitoken()->composing(), "Dispersion measure")
             ("telescope,k", value<string>(), "Telescope name")
             ("cont", "Input files are contiguous")
+            ("trlsm", "Using Tikhonov-regularized least square method folding algorithm")
+            ("lambda", value<double>()->default_value(1), "The regularization factor")
             ("input,f", value<vector<string>>()->multitoken()->composing(), "Input files");
 
     positional_options_description pos_desc;
@@ -62,6 +63,10 @@ int main(int argc, const char *argv[])
     if (vm.count("verbose"))
     {
         verbose = 1;
+    }
+    if (vm.count("trlsm"))
+    {
+        lsm = true;
     }
     if (vm.count("input") == 0)
     {
@@ -325,6 +330,7 @@ int main(int argc, const char *argv[])
         folders[k].nbin = vm["nbin"].as<int>();
         folders[k].npol = nifs;
         folders[k].nsblk = nsblk;
+        folders[k].lambda = vm["lambda"].as<double>();
 
         folders[k].prepare(databuf);
 
@@ -372,20 +378,35 @@ int main(int argc, const char *argv[])
 			}
 
 			psf[n].subint.load_integration_data(psf[n].fptr, s, it);
-#ifdef FAST
-			unsigned char *pcur = (unsigned char *)(it.data);
-#endif
+
 			for (long int i=0; i<it.nsblk; i++)
 			{
 				count++;
 
-				for (long int k=0; k<nifs; k++)
-				{
-					for (long int j=0; j<nchans; j++)
-					{
-						databuf.buffer[bcnt1*nifs*nchans+k*nchans+j] =  pcur[k*nchans+j];
-					}
-				}
+                if (it.dtype == Integration::UINT8)
+                {
+                    for (long int k=0; k<nifs; k++)
+                    {
+                        for (long int j=0; j<nchans; j++)
+                        {
+                            databuf.buffer[bcnt1*nifs*nchans+k*nchans+j] = ((unsigned char *)(it.data))[i*nifs*nchans+k*nchans+j];
+                        }
+                    }
+                }
+                else if (it.dtype == Integration::FLOAT)
+                {
+                    for (long int k=0; k<nifs; k++)
+                    {
+                        for (long int j=0; j<nchans; j++)
+                        {
+                            databuf.buffer[bcnt1*nifs*nchans+k*nchans+j] = ((float *)(it.data))[i*nifs*nchans+k*nchans+j];
+                        }
+                    }
+                }
+                else
+                {
+                    cerr<<"Error: data type is not support"<<endl;
+                }
 
                 bcnt1++;
 				ntot++;
@@ -400,8 +421,11 @@ int main(int argc, const char *argv[])
                         else
                             folders[ipsr].start_epoch = psf[idx[0]].primary.start_mjd+(ntot-ndump)*psf[n].subint.tbin;
                         
-                        folders[ipsr].run(databuf);
-
+                        if (!lsm)
+                            folders[ipsr].run(databuf);
+                        else
+                            folders[ipsr].runLSM(databuf);
+                        
                         writers[ipsr].run(folders[ipsr]);
                     }
 
@@ -431,8 +455,6 @@ int main(int argc, const char *argv[])
                         intcnt = 0;
                     }
 				}
-
-				pcur += it.npol*it.nchan;
 
                 if (ns_psfn == psf[n].subint.nsamples)
 				{
