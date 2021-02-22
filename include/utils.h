@@ -90,6 +90,10 @@ fftwf_plan plan_transpose(int rows, int cols, float *in, float *out);
 fftw_plan plan_transpose(int rows, int cols, double *in, double *out);
 
 void runMedian(float *data, float *datMedian, long int size, int w);
+template <typename T>
+void runMedian2(T *data, T *datMedian, long int size, int w);
+template <typename T>
+void runMedian3(T *data, T *datMedian, long int size, int w);
 
 template <typename T>
 void transpose(T *out, T *in, int m, int n);
@@ -250,7 +254,16 @@ inline void get_rad_radec(const std::string &s_ra, const std::string &s_dec, dou
     std::vector<std::string> ddmmss;
     boost::split(ddmmss, s_dec, boost::is_any_of(":"), boost::token_compress_on);
 
-    ra = (stod(hhmmss[0])*15. + stod(hhmmss[1])/60. + stod(hhmmss[2])/3600.)/180.*M_PI;
+    for (long int i=hhmmss.size(); i<3; i++)
+    {
+        hhmmss.push_back("0");
+    }
+    for (long int i=ddmmss.size(); i<3; i++)
+    {
+        ddmmss.push_back("0");
+    }
+
+    ra = (stod(hhmmss[0]) + stod(hhmmss[1])/60. + stod(hhmmss[2])/3600.)*15./180.*M_PI;
     dec = (stod(ddmmss[0]) + stod(ddmmss[1])/60. + stod(ddmmss[2])/3600.)/180.*M_PI;
 }
 

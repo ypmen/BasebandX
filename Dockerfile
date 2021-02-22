@@ -9,6 +9,8 @@ ENV HOME /root
 
 RUN apt-get update
 
+RUN apt-get install --fix-missing
+
 RUN apt-get install -y git \
     autoconf \
     libtool \
