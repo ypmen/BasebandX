@@ -259,6 +259,87 @@ void transpose_pad(T *out, T *in, int m, int n, int tiley, int tilex)
     delete[] temp;    
 }
 
+#ifdef __AVX2__
+inline void transpose8x8_ps(float *out, float *in, int m, int n)
+{
+    __m256 row0 = _mm256_load_ps(in+0*n);
+    __m256 row1 = _mm256_load_ps(in+1*n);
+    __m256 row2 = _mm256_load_ps(in+2*n);
+    __m256 row3 = _mm256_load_ps(in+3*n);
+    __m256 row4 = _mm256_load_ps(in+4*n);
+    __m256 row5 = _mm256_load_ps(in+5*n);
+    __m256 row6 = _mm256_load_ps(in+6*n);
+    __m256 row7 = _mm256_load_ps(in+7*n);
+
+    __m256 __t0, __t1, __t2, __t3, __t4, __t5, __t6, __t7;
+    __m256 __tt0, __tt1, __tt2, __tt3, __tt4, __tt5, __tt6, __tt7;
+    __t0 = _mm256_unpacklo_ps(row0, row1);
+    __t1 = _mm256_unpackhi_ps(row0, row1);
+    __t2 = _mm256_unpacklo_ps(row2, row3);
+    __t3 = _mm256_unpackhi_ps(row2, row3);
+    __t4 = _mm256_unpacklo_ps(row4, row5);
+    __t5 = _mm256_unpackhi_ps(row4, row5);
+    __t6 = _mm256_unpacklo_ps(row6, row7);
+    __t7 = _mm256_unpackhi_ps(row6, row7);
+    __tt0 = _mm256_shuffle_ps(__t0,__t2,_MM_SHUFFLE(1,0,1,0));
+    __tt1 = _mm256_shuffle_ps(__t0,__t2,_MM_SHUFFLE(3,2,3,2));
+    __tt2 = _mm256_shuffle_ps(__t1,__t3,_MM_SHUFFLE(1,0,1,0));
+    __tt3 = _mm256_shuffle_ps(__t1,__t3,_MM_SHUFFLE(3,2,3,2));
+    __tt4 = _mm256_shuffle_ps(__t4,__t6,_MM_SHUFFLE(1,0,1,0));
+    __tt5 = _mm256_shuffle_ps(__t4,__t6,_MM_SHUFFLE(3,2,3,2));
+    __tt6 = _mm256_shuffle_ps(__t5,__t7,_MM_SHUFFLE(1,0,1,0));
+    __tt7 = _mm256_shuffle_ps(__t5,__t7,_MM_SHUFFLE(3,2,3,2));
+    row0 = _mm256_permute2f128_ps(__tt0, __tt4, 0x20);
+    row1 = _mm256_permute2f128_ps(__tt1, __tt5, 0x20);
+    row2 = _mm256_permute2f128_ps(__tt2, __tt6, 0x20);
+    row3 = _mm256_permute2f128_ps(__tt3, __tt7, 0x20);
+    row4 = _mm256_permute2f128_ps(__tt0, __tt4, 0x31);
+    row5 = _mm256_permute2f128_ps(__tt1, __tt5, 0x31);
+    row6 = _mm256_permute2f128_ps(__tt2, __tt6, 0x31);
+    row7 = _mm256_permute2f128_ps(__tt3, __tt7, 0x31);
+
+    _mm256_store_ps(out+0*m, row0);
+    _mm256_store_ps(out+1*m, row1);
+    _mm256_store_ps(out+2*m, row2);
+    _mm256_store_ps(out+3*m, row3);
+    _mm256_store_ps(out+4*m, row4);
+    _mm256_store_ps(out+5*m, row5);
+    _mm256_store_ps(out+6*m, row6);
+    _mm256_store_ps(out+7*m, row7);
+}
+void transpose_AVX2(float *out, float *in, int m, int n)
+{
+    assert(m%8 == 0);
+    assert(n%8 == 0);
+
+    const int tilex = 64;
+    const int tiley = 64;
+
+    int blockx = n/tilex;
+    int blocky = m/tiley;
+
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(num_threads)
+#endif
+    for (int i=0; i<m; i+=tiley)
+    {
+        for (int j=0; j<n; j+=tilex)
+        {
+            int mm = std::min(i+tiley, m);
+            int nn = std::min(j+tilex, n);
+
+            for (int ii=i; ii<mm; ii+=8)
+            {
+                for (int jj=j; jj<nn; jj+=8)
+                {
+                    transpose8x8_ps(out+(jj*m+ii), in+(ii*n+jj), m, n);
+                }
+            }
+        }
+    }
+}
+#endif
+
 void runMedian(float *data, float *datMedian, long int size, int w)
 {
     AVLTree<float> treeMedian;
@@ -1037,6 +1118,103 @@ void get_mean_var(T profile, int size, double &mean, double &var)
 }
 
 template <typename T>
+void get_mean_var2(T profile, int size, double &mean, double &var)
+{
+    long int nbin = size;
+
+    double boxsum = 0.;
+    for (long int i=0; i<nbin/4; i++)
+    {
+        boxsum += profile[i];
+    }
+    double min = boxsum;
+    long int istart = 0;
+    long int iend = nbin/4;
+    for (long int i=0; i<nbin-1; i++)
+    {
+        boxsum -= profile[i];
+        boxsum += profile[(i+nbin/4)%nbin];
+        if (boxsum < min)
+        {
+            min = boxsum;
+            istart = i+1;
+            iend = nbin/4+i+1;
+        }
+    }
+
+    long int istart1 = istart;
+    long int iend1 = iend;
+
+    boxsum = 0.;
+    for (long int i=iend1; i<iend1+nbin/4; i++)
+    {
+        boxsum += profile[i%nbin];
+    }
+    min = boxsum;
+    istart = iend;
+    iend = istart+nbin/4;
+    for (long int i=iend1; i<iend1+nbin/2; i++)
+    {
+        boxsum -= profile[i%nbin];
+        boxsum += profile[(i+nbin/4)%nbin];
+        if (boxsum < min)
+        {
+            min = boxsum;
+            istart = i+1;
+            iend = nbin/4+i+1;
+        }
+    }
+    for (long int i=iend1+nbin/2; i<iend1+3*nbin/4-1; i++)
+    {
+        boxsum -= profile[i%nbin];
+        boxsum += profile[(i+nbin/2)%nbin];
+        if (boxsum < min)
+        {
+            min = boxsum;
+            istart = i+1;
+            iend = nbin/2+i+1;
+        }
+    }
+
+    long int istart2 = istart;
+    long int iend2 = iend;
+
+    double tmp_mean = 0.;
+    double tmp_var = 0.;
+    if (iend2-istart2 == nbin/2)
+    {
+        for (long int i=istart2; i<iend2; i++)
+        {
+            double tmp = profile[i%nbin];
+            tmp_mean += tmp;
+            tmp_var += tmp*tmp;
+        }
+    }
+    else
+    {
+        for (long int i=istart1; i<iend1; i++)
+        {
+            double tmp = profile[i%nbin];
+            tmp_mean += tmp;
+            tmp_var += tmp*tmp;
+        }
+        for (long int i=istart2; i<iend2; i++)
+        {
+            double tmp = profile[i%nbin];
+            tmp_mean += tmp;
+            tmp_var += tmp*tmp;
+        }
+    }
+
+    tmp_mean /= (nbin/2);
+    tmp_var /= (nbin/2);
+    tmp_var -= tmp_mean*tmp_mean;
+
+    mean = tmp_mean;
+    var = tmp_var;
+}
+
+template <typename T>
 void get_mean_var(T profiles, int nrow, int ncol, double &mean, double &var)
 {
     long int nchan = nrow;
@@ -1086,20 +1264,88 @@ void get_mean_var(T profiles, int nrow, int ncol, double &mean, double &var)
     var = tmp_var;
 }
 
+template <typename T>
+void get_mean_var(T profile, T profiles, int nsubint, int nchan, int nbin, double &mean, double &var)
+{
+    std::vector<double> alpha(nsubint*nchan, 0.);
+    std::vector<double> beta(nsubint*nchan, 0.);
+
+    std::vector<double> profile_sort(nbin, 0.);
+
+    double se = 0., ss = 0.;
+    for (long int i=0; i<nbin; i++)
+    {
+        se += profile[i];
+        ss += profile[i]*profile[i];
+
+        profile_sort[i] = profile[i];
+    }
+
+    double temp = se*se-ss*nbin;
+    if (temp == 0) temp = 1.;
+
+    for (long int k=0; k<nsubint; k++)
+    {
+        for (long int j=0; j<nchan; j++)
+        {
+            double xe = 0., xs = 0.;
+            for (long int i=0; i<nbin; i++)
+            {
+                xe += profiles[k*nchan*nbin+j*nbin+i];
+                xs += profiles[k*nchan*nbin+j*nbin+i]*profile[i];
+            }
+
+            alpha[k*nchan+j] = (se*xe-xs*nbin)/temp;
+            beta[k*nchan+j] = (xs*se-xe*ss)/temp;
+        }
+    }
+
+    mean = 0.;
+    var = 0.;
+    for (long int k=0; k<nsubint; k++)
+    {
+        for (long int j=0; j<nchan; j++)
+        {
+            double tmp_mean = 0.;
+            double tmp_var = 0.;
+            for (long int i=0; i<nbin; i++)
+            {
+                double tmp = profiles[k*nchan*nbin+j*nbin+i]-alpha[k*nchan+j]*profile[i]-beta[k*nchan+j];
+                tmp_mean += tmp;
+                tmp_var += tmp*tmp;
+            }
+            tmp_mean /= nbin;
+            tmp_var /= nbin;
+            tmp_var -= tmp_mean*tmp_mean;
+            var += tmp_var;
+        }
+    }
+}
+
 template bool get_error_from_chisq_matrix<float>(float &xerr, float &yerr, vector<float> &x, vector<float> &y, vector<float> &mxchisq);
 template bool get_error_from_chisq_matrix<float>(float &xerr, vector<float> &x, vector<float> &vchisq);
 template bool get_error_from_chisq_matrix<double>(double &xerr, double &yerr, vector<double> &x, vector<double> &y, vector<double> &mxchisq);
 template bool get_error_from_chisq_matrix<double>(double &xerr, vector<double> &x, vector<double> &vchisq);
 
 template void get_mean_var<std::vector<float>::iterator>(std::vector<float>::iterator profile, int size, double &mean, double &var);
+template void get_mean_var2<std::vector<float>::iterator>(std::vector<float>::iterator profile, int size, double &mean, double &var);
 template void get_mean_var<std::vector<float>::iterator>(std::vector<float>::iterator profiles, int nrow, int ncol, double &mean, double &var);
 template void get_mean_var<std::vector<double>::iterator>(std::vector<double>::iterator profile, int size, double &mean, double &var);
+template void get_mean_var2<std::vector<double>::iterator>(std::vector<double>::iterator profile, int size, double &mean, double &var);
 template void get_mean_var<std::vector<double>::iterator>(std::vector<double>::iterator profiles, int nrow, int ncol, double &mean, double &var);
+
+template void get_mean_var<std::vector<double>::iterator>(std::vector<double>::iterator profile, std::vector<double>::iterator profiles, int nsubint, int nchan, int nbin, double &mean, double &var);
+template void get_mean_var<std::vector<float>::iterator>(std::vector<float>::iterator profile, std::vector<float>::iterator profiles, int nsubint, int nchan, int nbin, double &mean, double &var);
 
 template void transpose<float>(float *out, float *in, int m, int n);
 template void transpose_pad<float>(float *out, float *in, int m, int n);
 template void transpose_pad<float>(float *out, float *in, int m, int n, int tiley, int tilex);
 template void transpose<complex<float>>(complex<float> *out, complex<float> *in, int m, int n);
+template void transpose_pad<unsigned char>(unsigned char *out, unsigned char *in, int m, int n);
+template void transpose_pad<unsigned char>(unsigned char *out, unsigned char *in, int m, int n, int tiley, int tilex);
+template void transpose_pad<short>(short *out, short *in, int m, int n);
+template void transpose_pad<short>(short *out, short *in, int m, int n, int tiley, int tilex);
+
 template void transpose_pad<complex<float>>(complex<float> *out, complex<float> *in, int m, int n);
 template void transpose_pad<complex<float>>(complex<float> *out, complex<float> *in, int m, int n, int tiley, int tilex);
 
@@ -1108,5 +1354,6 @@ template void transpose_pad<double>(double *out, double *in, int m, int n);
 template void transpose_pad<double>(double *out, double *in, int m, int n, int tiley, int tilex);
 
 template void runMedian2<float>(float *data, float *datMedian, long int size, int w);
+template void runMedian2<double>(double *data, double *datMedian, long int size, int w);
 
 template void runMedian3<float>(float *data, float *datMedian, long int size, int w);

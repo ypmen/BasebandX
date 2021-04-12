@@ -15,6 +15,8 @@
 #include <fstream>
 #include <vector>
 #include <tuple>
+#include <set>
+#include <immintrin.h>
 #include <numeric>
 #include <iomanip>
 #include <algorithm>
@@ -31,6 +33,17 @@ inline vector<size_t> argsort(const vector<T> &v)
   iota(idx.begin(), idx.end(), 0);
 
   stable_sort(idx.begin(), idx.end(), [&v](size_t i1, size_t i2) {return v[i1] < v[i2];});
+
+  return idx;
+}
+
+template <typename T>
+inline vector<size_t> argsort2(const vector<T> &v)
+{
+  vector<size_t> idx(v.size());
+  iota(idx.begin(), idx.end(), 0);
+
+  stable_sort(idx.begin(), idx.end(), [&v](size_t i1, size_t i2) {return v[i1] > v[i2];});
 
   return idx;
 }
@@ -94,6 +107,10 @@ template <typename T>
 void runMedian2(T *data, T *datMedian, long int size, int w);
 template <typename T>
 void runMedian3(T *data, T *datMedian, long int size, int w);
+
+#ifdef __AVX2__
+void transpose_AVX2(float *out, float *in, int m, int n);
+#endif
 
 template <typename T>
 void transpose(T *out, T *in, int m, int n);
@@ -275,6 +292,12 @@ template <typename T>
 void get_mean_var(T profile, int size, double &mean, double &var);
 
 template <typename T>
+void get_mean_var2(T profile, int size, double &mean, double &var);
+
+template <typename T>
 void get_mean_var(T profiles, int nrow, int ncol, double &mean, double &var);
+
+template <typename T>
+void get_mean_var(T profile, T profiles, int nsubint, int nchan, int nbin, double &mean, double &var);
 
 #endif /* UTILS_H_ */

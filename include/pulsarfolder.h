@@ -27,15 +27,22 @@ namespace Baseband
         PulsarFolder(const std::string &fname);
         ~PulsarFolder();
         void prepare(DataBuffer<float> &databuffer);
-        void run(DataBuffer<float> &databuffer);
-        void runLSM(DataBuffer<float> &databuffer);
+#ifdef __AVX2__
+        void run(std::vector<float, boost::alignment::aligned_allocator<float, 32>>::iterator data);
+        void runLSM(std::vector<float, boost::alignment::aligned_allocator<float, 32>>::iterator data);
+#else
+        void run(std::vector<float>::iterator data);
+        void runLSM(std::vector<float>::iterator data);
+#endif
+        void flush();
+        void flushLSM();
     public:
         int npol;
         int nbin;
         int nsblk;
         MJD start_epoch;
         Predictors predictor;
-        double fold_period;
+        long double fold_period;
         double lambda;
     public:
         int nchan;
@@ -47,6 +54,15 @@ namespace Baseband
         MJD epoch;
         std::vector<double> frequencies;
         std::vector<float> profiles;
+        int cnt;
+    private:
+        double tsamp;
+        double phi;
+        double pfold;
+        vector<double> mxWTW;
+        vector<double> vWTd_T;
+        vector<int> hits;
+        vector<float> profilesTPF;
     };
 }
 #endif /* PULSARFOLDER_H */

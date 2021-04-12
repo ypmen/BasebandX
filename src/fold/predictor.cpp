@@ -30,6 +30,80 @@ Predictor::Predictor()
 	dcoef = NULL;
 }
 
+Predictor::Predictor(const Predictor &pred)
+{
+	dispersion_constant = pred.dispersion_constant;
+	mjd_low = pred.mjd_low;
+	mjd_up = pred.mjd_up;
+	freq_low = pred.freq_low;
+	freq_up = pred.freq_up;
+	psrname = pred.psrname;
+	sitename = pred.sitename;
+
+	ncoef_f = pred.ncoef_f;
+	ncoef_t = pred.ncoef_t;
+
+	if (pred.coef != NULL)
+	{
+		coef = new long double [ncoef_f*ncoef_t];
+		memcpy(coef, pred.coef, sizeof(long double)*ncoef_f*ncoef_t);
+	}
+	else
+	{
+		coef = NULL;
+	}
+
+	if (pred.dcoef != NULL)
+	{
+		dcoef = new long double [ncoef_f*ncoef_t];
+		memcpy(dcoef, pred.dcoef, sizeof(long double)*ncoef_f*ncoef_t);
+	}
+	else
+	{
+		dcoef = NULL;
+	}
+}
+
+Predictor & Predictor::operator=(const Predictor &pred)
+{
+	dispersion_constant = pred.dispersion_constant;
+	mjd_low = pred.mjd_low;
+	mjd_up = pred.mjd_up;
+	freq_low = pred.freq_low;
+	freq_up = pred.freq_up;
+	psrname = pred.psrname;
+	sitename = pred.sitename;
+
+	ncoef_f = pred.ncoef_f;
+	ncoef_t = pred.ncoef_t;
+
+	if (pred.coef != NULL)
+	{
+		if (coef != NULL) delete coef;
+		coef = new long double [ncoef_f*ncoef_t];
+		memcpy(coef, pred.coef, sizeof(long double)*ncoef_f*ncoef_t);
+	}
+	else
+	{
+		if (coef != NULL) delete coef;
+		coef = NULL;
+	}
+
+	if (pred.dcoef != NULL)
+	{
+		if (dcoef != NULL) delete dcoef;
+		dcoef = new long double [ncoef_f*ncoef_t];
+		memcpy(dcoef, pred.dcoef, sizeof(long double)*ncoef_f*ncoef_t);
+	}
+	else
+	{
+		if (dcoef != NULL) delete dcoef;
+		dcoef = NULL;
+	}
+
+	return *this;
+}
+
 Predictor::~Predictor()
 {
 	if (coef != NULL)
@@ -127,6 +201,48 @@ Predictors::Predictors()
 {
 	npred = 0;
 	pred = NULL;
+}
+
+Predictors::Predictors(const Predictors &preds)
+{
+	filename = preds.filename;
+	npred = preds.npred;
+
+	if (preds.pred != NULL)
+	{
+		pred = new Predictor [npred];
+		for (long int k=0; k<npred; k++)
+		{
+			pred[k] = preds.pred[k];
+		}
+	}
+	else
+	{
+		pred = NULL;
+	}
+}
+
+Predictors & Predictors::operator=(const Predictors &preds)
+{
+	filename = preds.filename;
+	npred = preds.npred;
+
+	if (preds.pred != NULL)
+	{
+		if (pred != NULL) delete pred;
+		pred = new Predictor [npred];
+		for (long int k=0; k<npred; k++)
+		{
+			pred[k] = preds.pred[k];
+		}
+	}
+	else
+	{
+		if (pred != NULL) delete pred;
+		pred = NULL;
+	}
+
+	return *this;
 }
 
 Predictors::Predictors(const string fname)

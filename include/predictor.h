@@ -17,6 +17,8 @@ class Predictor
 {
 public:
 	Predictor();
+	Predictor(const Predictor &pred);
+    Predictor & operator=(const Predictor &pred);
 	~Predictor();
 	void set_coef(long double *coefs, int m, int n);
 	long double get_phase(long double mjd, long double freq);
@@ -43,6 +45,8 @@ class Predictors
 {
 public:
 	Predictors();
+	Predictors(const Predictors &preds);
+    Predictors & operator=(const Predictors &preds);
 	Predictors(const string fname);
 	~Predictors();
 	void read_t2pred(const string fname);
