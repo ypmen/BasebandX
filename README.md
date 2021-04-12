@@ -2,8 +2,13 @@
 Coherent dedispersion and real-time folding (only folding part is available currently, coherent dedispersion is still in development and test)
 
 # Requirements
-tempo2 is required, if the parfile is input.
+- tempo2 is required, if the parfile is input.
+- Eigen3
+
+# Installation:
+1) ./bootstrap
+2) ./configure --prefix=/install\_path
+3) make and make install
 
 # Docker
-1) docker pull ypmen/pulsarx
-2) docker build -t pulsarx - < Dockerfile
+docker pull ypmen/pulsarx
