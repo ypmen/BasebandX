@@ -28,6 +28,7 @@ Predictor::Predictor()
 	ncoef_f = 0;
 	coef = NULL;
 	dcoef = NULL;
+	ddcoef = NULL;
 }
 
 Predictor::Predictor(const Predictor &pred)
@@ -61,6 +62,16 @@ Predictor::Predictor(const Predictor &pred)
 	else
 	{
 		dcoef = NULL;
+	}
+
+	if (pred.ddcoef != NULL)
+	{
+		ddcoef = new long double [ncoef_f*ncoef_t];
+		memcpy(ddcoef, pred.ddcoef, sizeof(long double)*ncoef_f*ncoef_t);
+	}
+	else
+	{
+		ddcoef = NULL;
 	}
 }
 
@@ -101,6 +112,18 @@ Predictor & Predictor::operator=(const Predictor &pred)
 		dcoef = NULL;
 	}
 
+	if (pred.ddcoef != NULL)
+	{
+		if (ddcoef != NULL) delete ddcoef;
+		ddcoef = new long double [ncoef_f*ncoef_t];
+		memcpy(ddcoef, pred.ddcoef, sizeof(long double)*ncoef_f*ncoef_t);
+	}
+	else
+	{
+		if (ddcoef != NULL) delete ddcoef;
+		ddcoef = NULL;
+	}
+
 	return *this;
 }
 
@@ -117,14 +140,21 @@ Predictor::~Predictor()
 		delete [] dcoef;
 		dcoef = NULL;
 	}
+
+	if (ddcoef != NULL)
+	{
+		delete [] ddcoef;
+		ddcoef = NULL;
+	}
 }
 
 void Predictor::set_coef(long double *coefs, int m, int n)
 {
-	if (coef == NULL and dcoef == NULL)
+	if (coef == NULL and dcoef == NULL and dcoef == NULL)
 	{
 		coef = new long double [m*n];
 		dcoef = new long double [m*n];
+		ddcoef = new long double [m*n];
 		ncoef_f = m;
 		ncoef_t = n;
 	}
@@ -138,18 +168,27 @@ void Predictor::set_coef(long double *coefs, int m, int n)
 	{
 		delete [] coef;
 		delete [] dcoef;
+		delete [] ddcoef;
 		coef = new long double [m*n];
 		dcoef = new long double [m*n];
+		ddcoef = new long double [m*n];
 		ncoef_f = m;
 		ncoef_t = n;
 	}
 
 	compute_dcoef();
+	memcpy(ddcoef, dcoef, sizeof(long double)*m*n);
+	compute_ddcoef();
 }
 
 void Predictor::compute_dcoef()
 {
 	dcheby(dcoef, ncoef_f, ncoef_t);
+}
+
+void Predictor::compute_ddcoef()
+{
+	dcheby(ddcoef, ncoef_f, ncoef_t);
 }
 
 long double Predictor::get_phase(long double mjd, long double freq)
@@ -175,6 +214,21 @@ double Predictor::get_pfold(long double mjd, long double freq)
 		long double x = -1. + 2.*(mjd-mjd_low)/(mjd_up-mjd_low);
 		long double y = -1. + 2.*(freq-freq_low)/(freq_up-freq_low);
 		return 1./(2./((mjd_up-mjd_low)*86400.)*cheby2d_eval(dcoef, ncoef_f, ncoef_t, x, y));
+	}
+	else
+	{
+		cerr<<"Error: out of date"<<endl;
+		return 0;
+	}
+}
+
+double Predictor::get_fdfold(long double mjd, long double freq)
+{
+	if (mjd>=mjd_low and mjd<=mjd_up)
+	{
+		long double x = -1. + 2.*(mjd-mjd_low)/(mjd_up-mjd_low);
+		long double y = -1. + 2.*(freq-freq_low)/(freq_up-freq_low);
+		return (2./((mjd_up-mjd_low)*86400.))*(2./((mjd_up-mjd_low)*86400.))*cheby2d_eval(ddcoef, ncoef_f, ncoef_t, x, y);
 	}
 	else
 	{
@@ -300,6 +354,12 @@ double Predictors::get_pfold(long double mjd, long double freq)
 {
 	int k = get_nearest(mjd);
 	return pred[k].get_pfold(mjd, freq);
+}
+
+double Predictors::get_fdfold(long double mjd, long double freq)
+{
+	int k = get_nearest(mjd);
+	return pred[k].get_fdfold(mjd, freq);
 }
 
 long double Predictors::get_phase_inverse(long double phase, long double freq)

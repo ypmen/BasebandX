@@ -23,9 +23,11 @@ public:
 	void set_coef(long double *coefs, int m, int n);
 	long double get_phase(long double mjd, long double freq);
 	double get_pfold(long double mjd, long double freq);
+	double get_fdfold(long double mjd, long double freq);
 	long double get_phase_inverse(long double phase, long double freq);
 private:
 	void compute_dcoef();
+	void compute_ddcoef();
 public:
 	long double dispersion_constant;
 	long double mjd_low;
@@ -39,6 +41,7 @@ private:
 	int ncoef_f;
 	long double *coef;
 	long double *dcoef;
+	long double *ddcoef;
 };
 
 class Predictors
@@ -53,6 +56,7 @@ public:
 	long double get_phase(long double mjd, long double freq);
 	double get_fphase(long double mjd, long double freq);
 	double get_pfold(long double mjd, long double freq);
+	double get_fdfold(long double mjd, long double freq);
 	long double get_phase_inverse(long double phase, long double freq);
 	long double get_center_frequency();
 	bool empty()

@@ -136,6 +136,11 @@ Filterbank::Filterbank(const Filterbank &fil)
 	{
 		switch (nbits)
 		{
+		case 1:
+		{
+			data = new unsigned char [ndata*nifs*nchans];
+			memcpy(data, fil.data, sizeof(unsigned char)*ndata*nifs*nchans); break;
+		}
 		case 8:
 		{
 			data = new unsigned char [ndata*nifs*nchans];
@@ -199,16 +204,23 @@ Filterbank & Filterbank::operator=(const Filterbank &fil)
 
 	if (fil.data != NULL)
 	{
-		if (data != NULL) delete [] data;
 		switch (nbits)
 		{
+		case 1:
+		{
+			if (data != NULL) delete [] (unsigned char *)data;
+			data = new unsigned char [ndata*nifs*nchans];
+			memcpy(data, fil.data, sizeof(unsigned char)*ndata*nifs*nchans); break;
+		}
 		case 8:
 		{
+			if (data != NULL) delete [] (unsigned char *)data;
 			data = new unsigned char [ndata*nifs*nchans];
 			memcpy(data, fil.data, sizeof(unsigned char)*ndata*nifs*nchans); break;
 		}
 		case 32:
 		{
+			if (data != NULL) delete [] (float *)data;
 			data = new float [ndata*nifs*nchans];
 			memcpy(data, fil.data, sizeof(float)*ndata*nifs*nchans); break;
 		}
@@ -231,6 +243,7 @@ Filterbank::~Filterbank()
 	{
 		switch (nbits)
 		{
+		case 1: delete [] (unsigned char *)data; break;
 		case 8: delete [] (unsigned char *)data; break;
 		case 32: delete [] (float *)data; break;
 		default: cerr<<"Error: data type not support"<<endl; break;
@@ -257,6 +270,7 @@ void Filterbank::free()
 	{
 		switch (nbits)
 		{
+		case 1: delete [] (unsigned char *)data; break;
 		case 8: delete [] (unsigned char *)data; break;
 		case 32: delete [] (float *)data; break;
 		default: cerr<<"Error: data type not support"<<endl; break;
@@ -505,6 +519,32 @@ bool Filterbank::read_data()
         nsamples = icnt/nifs/nchans;
         ndata = nsamples;
 	}; break;
+	case 1:
+	{
+		long int nchr = nsamples*nifs*nchans;
+        unsigned char * chb = new unsigned char [nchr];
+        long int icnt = fread(chb, 1, nchr/8, fptr);
+        if (icnt*8 > ndata)
+        {
+        	if (data != NULL) delete [] (unsigned char *)data;
+        	data = new unsigned char [icnt*8];
+        }
+        for (long int i=0; i<icnt; i++)
+        {
+			unsigned char tmp = chb[i];
+			for (long int k=0; k<8; k++)
+			{
+                ((unsigned char *)data)[i*8+k] = tmp & 1;
+				tmp >>= 1;
+			}
+		}
+        delete [] chb;
+        if (icnt*8 != nchr)
+        {
+                //cerr<<"Warning: Data ends unexpected read to EOF"<<endl;
+        }
+        ndata = icnt*8/nifs/nchans;
+	}; break;
 	default:
 	{
 		cerr<<"Error: data type unsupported"<<endl;
@@ -518,7 +558,7 @@ bool Filterbank::read_data()
 bool Filterbank::read_data(long int nstart, long int ns)
 {
     long int offset=(long int) (long double)nstart * (long double)nchans * (long double)nifs * ((long double)nbits / 8.0);
-    fseek(fptr, offset, SEEK_CUR);
+    fseek(fptr, offset+header_size, SEEK_SET);
     return read_data(ns);
 }
 
@@ -543,9 +583,35 @@ bool Filterbank::read_data(long int ns)
         delete [] chb;
         if (icnt != nchr)
         {
-                cerr<<"Data ends unexpected read to EOF"<<endl;
+                //cerr<<"Warning: Data ends unexpected read to EOF"<<endl;
         }
         ndata = icnt/nifs/nchans;
+	}; break;
+	case 1:
+	{
+		long int nchr = ns*nifs*nchans;
+        unsigned char * chb = new unsigned char [nchr];
+        long int icnt = fread(chb, 1, nchr/8, fptr);
+        if (icnt*8 > ndata)
+        {
+        	if (data != NULL) delete [] (unsigned char *)data;
+        	data = new unsigned char [icnt*8];
+        }
+        for (long int i=0; i<icnt; i++)
+        {
+			unsigned char tmp = chb[i];
+			for (long int k=0; k<8; k++)
+			{
+                ((unsigned char *)data)[i*8+k] = tmp & 1;
+				tmp >>= 1;
+			}
+		}
+        delete [] chb;
+        if (icnt*8 != nchr)
+        {
+                //cerr<<"Warning: Data ends unexpected read to EOF"<<endl;
+        }
+        ndata = icnt*8/nifs/nchans;
 	}; break;
 	default:
 	{
@@ -784,4 +850,89 @@ void get_telescope_name(int telescope_id, std::string &s_telescope)
         s_telescope = "Unknown";
         break;
     }
+}
+
+bool iequals(const string& a, const string& b)
+{
+    unsigned int sz = a.size();
+    if (b.size() != sz)
+        return false;
+    for (unsigned int i = 0; i < sz; ++i)
+        if (tolower(a[i]) != tolower(b[i]))
+            return false;
+    return true;
+}
+
+int get_telescope_id(const std::string &s_telescope)
+{
+	if (iequals(s_telescope, "Fake"))
+	{
+		return 0;
+	}
+	else if (iequals(s_telescope, "Arecibo"))
+	{
+		return 1;
+	}
+	else if (iequals(s_telescope, "Ooty"))
+	{
+		return 2;
+	}
+	else if (iequals(s_telescope, "Nancay"))
+	{
+		return 3;
+	}
+	else if (iequals(s_telescope, "Parkes"))
+	{
+		return 4;
+	}
+	else if (iequals(s_telescope, "Jodrell"))
+	{
+		return 5;
+	}
+	else if (iequals(s_telescope, "GBT"))
+	{
+		return 6;
+	}
+	else if (iequals(s_telescope, "GMRT"))
+	{
+		return 7;
+	}
+	else if (iequals(s_telescope, "Effelsberg"))
+	{
+		return 8;
+	}
+	else if (iequals(s_telescope, "ATA"))
+	{
+		return 9;
+	}
+	else if (iequals(s_telescope, "SRT"))
+	{
+		return 10;
+	}
+	else if (iequals(s_telescope, "LOFAR"))
+	{
+		return 11;
+	}
+	else if (iequals(s_telescope, "VLA"))
+	{
+		return 12;
+	}
+	else if (iequals(s_telescope, "CHIME"))
+	{
+		return 20;
+	}
+	else if (iequals(s_telescope, "FAST"))
+	{
+		return 21;
+	}
+	else if (iequals(s_telescope, "MeerKAT"))
+	{
+		return 64;
+	}
+	else if (iequals(s_telescope, "KAT-7"))
+	{
+		return 65;
+	}
+	
+	return -1;
 }

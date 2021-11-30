@@ -387,7 +387,7 @@ int main(int argc, const char *argv[])
 	for (long int idxn=0; idxn<nfil; idxn++)
 	{
 		long int n = idx[idxn];
-        long int nseg = ceil(1.*fil[0].nsamples/nsblk);
+        long int nseg = ceil(1.*fil[n].nsamples/nsblk);
         long int ns_filn = 0;
 
 		for (long int s=0; s<nseg; s++)
