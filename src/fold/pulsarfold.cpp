@@ -6,6 +6,8 @@
  * @desc [description]
  */
 
+#define MEERKAT_PTUSE 1
+
 #include <iostream>
 #include <string.h>
 #include <vector>
@@ -408,6 +410,9 @@ int main(int argc, const char *argv[])
 		psf[n].primary.load(psf[n].fptr);
 		psf[n].load_mode();
 		psf[n].subint.load_header(psf[n].fptr);
+#ifdef MEERKAT_PTUSE
+		double zero_off = psf[n].subint.zero_off;
+#endif
 
 		for (long int s=0; s<psf[n].subint.nsubint; s++)
 		{
@@ -417,7 +422,11 @@ int main(int argc, const char *argv[])
 				cerr<<"("<<100.*count/ntotal<<"%)";
 			}
 
+#ifdef MEERKAT_PTUSE
+			psf[n].subint.load_integration(psf[n].fptr, s, it);
+#else
 			psf[n].subint.load_integration_data(psf[n].fptr, s, it);
+#endif
 
 			for (long int i=0; i<it.nsblk; i++)
 			{
@@ -429,7 +438,11 @@ int main(int argc, const char *argv[])
                     {
                         for (long int j=0; j<nchans; j++)
                         {
+#ifdef MEERKAT_PTUSE
+							databuf.buffer[bcnt1*nifs*nchans+k*nchans+j] = it.weights[j] * ((((unsigned char *)(it.data))[i*nifs*nchans+k*nchans+j] - zero_off) * it.scales[k*nchans+j] + it.offsets[k*nchans+j]);
+#else
                             databuf.buffer[bcnt1*nifs*nchans+k*nchans+j] = ((unsigned char *)(it.data))[i*nifs*nchans+k*nchans+j];
+#endif
                         }
                     }
                 }
