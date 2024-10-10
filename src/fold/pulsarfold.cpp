@@ -6,8 +6,6 @@
  * @desc [description]
  */
 
-#define MEERKAT_PTUSE 1
-
 #include <iostream>
 #include <string.h>
 #include <vector>
@@ -16,6 +14,10 @@
 #include "dedisperse.h"
 #include "pulsarfolder.h"
 #include "archwriter.h"
+#include "psrfitsreader.h"
+#include "filterbankreader.h"
+
+#include "logging.h"
 
 using namespace std;
 using namespace boost::program_options;
@@ -24,6 +26,8 @@ unsigned int num_threads;
 
 int main(int argc, const char *argv[])
 {
+	init_logging();
+
 	int verbose = 0;
     bool lsm = false;
 
@@ -42,9 +46,14 @@ int main(int argc, const char *argv[])
             ("nsub,n", value<int>()->default_value(0), "Output number of integration per file")
             ("dm,d", value<vector<double>>()->multitoken()->composing(), "Dispersion measure")
             ("telescope,k", value<string>(), "Telescope name")
+			("ibeam,i", value<int>(), "Beam id")
             ("cont", "Input files are contiguous")
+			("wts", "Apply DAT_WTS")
+			("scloffs", "Apply DAT_SCL and DAT_OFFS")
+			("zero_off", "Apply ZERO_OFF")
             ("trlsm", "Using Tikhonov-regularized least square method folding algorithm")
             ("lambda", value<double>()->default_value(1), "The regularization factor")
+			("filterbank", "Input filterbank format data")
             ("input,f", value<vector<string>>()->multitoken()->composing(), "Input files");
 
     positional_options_description pos_desc;
@@ -73,17 +82,17 @@ int main(int argc, const char *argv[])
     }
     if (vm.count("input") == 0)
     {
-        cerr<<"Error: no input file"<<endl;
+        BOOST_LOG_TRIVIAL(error)<<"no input file";
         return -1;
     }
     if (vm.count("template") == 0)
     {
-        cerr<<"Error: no template file"<<endl;
+        BOOST_LOG_TRIVIAL(error)<<"no template file";
         return -1;
     }
     if (vm.count("parfile")==0 and vm.count("t2predictor") == 0 and vm.count("fold_period") == 0)
     {
-        cerr<<"Error: no parfile or t2pred or folding period"<<endl;
+        BOOST_LOG_TRIVIAL(error)<<"no parfile or t2pred or folding period";
         return -1;
     }
 
@@ -104,111 +113,37 @@ int main(int argc, const char *argv[])
         dms = vm["dm"].as<vector<double>>();
     }
 
-    /**
-     * @brief read data info
-     * 
-     */
-    long int npsf = fnames.size();
-	Psrfits *psf = new Psrfits [npsf];
-	for (long int i=0; i<npsf; i++)
-	{
-		psf[i].filename = fnames[i];
-	}
+	bool apply_wts = false;
+	bool apply_scloffs = false;
+	bool apply_zero_off = false;
 
-	vector<MJD> tstarts;
-	vector<MJD> tends;
-	long int ntotal = 0;
-	for (long int i=0; i<npsf; i++)
-	{
-		psf[i].open();
-		psf[i].primary.load(psf[i].fptr);
-		psf[i].load_mode();
-		psf[i].subint.load_header(psf[i].fptr);
-		ntotal += psf[i].subint.nsamples;
-		tstarts.push_back(psf[i].primary.start_mjd);
-		tends.push_back(psf[i].primary.start_mjd+psf[i].subint.nsamples*psf[i].subint.tbin);
-		psf[i].close();
-	}
-	vector<size_t> idx = argsort(tstarts);
-	for (long int i=0; i<npsf-1; i++)
-	{
-		if (abs((tends[idx[i]]-tstarts[idx[i+1]]).to_second())>0.5*psf[idx[i]].subint.tbin)
-		{
-			if (contiguous)
-			{
-				cerr<<"Warning: time not contiguous"<<endl;
-			}
-			else
-			{
-				cerr<<"Error: time not contiguous"<<endl;
-				exit(-1);
-			}
-		}
-	}
+	if (vm.count("wts"))
+		apply_wts = true;
+	if (vm.count("scloffs"))
+		apply_scloffs = true;
+	if (vm.count("zero_off"))
+		apply_zero_off = true;
 
-    psf[0].open();
-	psf[0].primary.load(psf[0].fptr);
-	psf[0].load_mode();
-	psf[0].subint.load_header(psf[0].fptr);
+	PSRDataReader * reader;
 
-	if (psf[0].mode != Integration::SEARCH)
-	{
-		cerr<<"Error: mode is not SEARCH"<<endl;
-		exit(-1);
-	}
+	if (vm.count("filterbank"))
+		reader= new FilterbankReader;
+	else
+		reader= new PsrfitsReader;
 
-    std::string src_name;
-    std::string s_telescope;
-    std::string s_ra;
-    std::string s_dec;
-    int ibeam = 1;
-    /**
-     * @brief read ibeam from data file
-     * 
-     */
-    if (strcmp(psf[0].primary.ibeam, "") != 0)
-			ibeam = stoi(psf[0].primary.ibeam);
-    /**
-     * @brief read src_name from data file
-     * 
-     */
-	if (strcmp(psf[0].primary.src_name, "") != 0)
-		src_name = psf[0].primary.src_name;
-
-    if (vm.count("telescope"))
-    {
-        s_telescope = vm["telescope"].as<string>();
-    }
-    else
-    {
-        if (strcmp(psf[0].primary.telesop, "") != 0)
-            s_telescope = psf[0].primary.telesop;
-    }
-
-    /**
-     * @brief read ra and dec from data file
-     * 
-     */
-	if (strcmp(psf[0].primary.ra, "") != 0)
-    {
-        s_ra = psf[0].primary.ra;
-    }
-    if (strcmp(psf[0].primary.dec, "") != 0)
-    {
-        s_dec = psf[0].primary.dec;
-    }
-
-	Integration it;
-	psf[0].subint.load_integration(psf[0].fptr, 0, it);
-
-	long int nchans = it.nchan;
-    double tsamp = psf[0].subint.tbin;
-    int nifs = it.npol;
-    int nsblk = it.nsblk;
-
-    MJD start_mjd = psf[idx[0]].primary.start_mjd;
-
-    psf[0].close();
+	if (vm.count("ibeam"))
+		reader->beam = std::to_string(vm["ibeam"].as<int>());
+	if (vm.count("telescope"))
+		reader->telescope = vm["telescope"].as<std::string>();
+	reader->fnames = fnames;
+	reader->sumif = false;
+	reader->contiguous = contiguous;
+	reader->verbose = verbose;
+	reader->apply_scloffs = apply_scloffs;
+	reader->apply_wts = apply_wts;
+	reader->apply_zero_off = apply_zero_off;
+	reader->check();
+	reader->read_header();
 
     /**
      * @brief initialize pipeline
@@ -255,26 +190,20 @@ int main(int argc, const char *argv[])
             }
         }
 
-        double mjd_start = (tstarts[idx[0]].to_day())-0.01;
-        double mjd_end = (tends[idx.back()].to_day())+1;
-        double fmin = it.frequencies[0];
-        double fmax = it.frequencies[0];
-        for (long int j=0; j<nchans; j++)
-        {
-            fmin = fmin<it.frequencies[j] ? fmin:it.frequencies[j];
-            fmax = fmax>it.frequencies[j] ? fmax:it.frequencies[j];
-        }
-        double chanwidth = abs(it.frequencies[1]-it.frequencies[0]);
-        fmin -= 0.5*chanwidth;
-        fmax += 0.5*chanwidth;
+        double mjd_start = (reader->mjd_starts[reader->idmap.front()].to_day())-0.01;
+        double mjd_end = (reader->mjd_ends[reader->idmap.back()].to_day())+1;
+        double fmin = 0.;
+        double fmax = 0.;
+		reader->get_fmin_fmax(fmin, fmax);
+       
         for (long int k=0; k<npulsar; k++)
         {
             string cmd = "tempo2 -npsr 1 -f " + parfiles[k] + " -pred ";
             cmd += "'";
-            if (s_telescope.empty())
+            if (reader->telescope.empty())
                 cmd += "fake";
             else
-                cmd += s_telescope;
+                cmd += reader->telescope;
             cmd += " ";
             cmd += to_string(mjd_start);
             cmd += " ";
@@ -312,16 +241,16 @@ int main(int argc, const char *argv[])
         }
     }
 
-    long int ndump = ceil(1./tsamp);
-    ndump = std::min(ndump, ntotal);
+    long int ndump = ceil(1./reader->tsamp);
+    ndump = std::min(ndump, (long int)reader->nsamples);
 
-    std::vector<int> blocksize(npulsar, ceil(vm["tsubint"].as<double>()/tsamp));
+    std::vector<int> blocksize(npulsar, ceil(vm["tsubint"].as<double>()/reader->tsamp));
 
-	DataBuffer<float> databuf(ndump, nifs*nchans);
-	databuf.tsamp = tsamp;
-	memcpy(&databuf.frequencies[0], it.frequencies, sizeof(double)*nchans);
+	DataBuffer<float> databuf(ndump, reader->nifs*reader->nchans);
+	databuf.tsamp = reader->tsamp;
+	databuf.frequencies = reader->frequencies;
 
-    MJD mjd_tmp = start_mjd;
+    MJD mjd_tmp = reader->start_mjd;
     char arname[4096];
 	const char format[] = "%Y-%m-%d-%H:%M:%S";
 	mjd_tmp.format();
@@ -339,40 +268,35 @@ int main(int argc, const char *argv[])
         {
             if (vm.count("t2predictor") or vm.count("parfile"))
             {
-                double pfold = folders[k].predictor.get_pfold((tstarts[idx.front()]+tstarts[idx.back()]).dividedby2().to_day(), 0.5*(databuf.frequencies.front()+databuf.frequencies.back()));
-                folders[k].nbin = std::pow(2, std::floor(std::log2(pfold/tsamp)));
+                double pfold = folders[k].predictor.get_pfold((reader->mjd_starts[reader->idmap.front()]+reader->mjd_ends[reader->idmap.back()]).dividedby2().to_day(), 0.5*(databuf.frequencies.front()+databuf.frequencies.back()));
+                folders[k].nbin = std::pow(2, std::floor(std::log2(pfold/reader->tsamp)));
             }
             else
             {
-                folders[k].nbin = std::pow(2, std::floor(std::log2(folders[k].fold_period/tsamp)));
+                folders[k].nbin = std::pow(2, std::floor(std::log2(folders[k].fold_period/reader->tsamp)));
             }
         }
 
-        folders[k].npol = nifs;
-        folders[k].nsblk = nsblk;
+        folders[k].npol = reader->nifs;
+        folders[k].nsblk = reader->nsblk;
         folders[k].lambda = vm["lambda"].as<double>();
-
-        if (!contiguous)
-            folders[k].start_epoch = psf[idx[0]].primary.start_mjd;
-        else
-            folders[k].start_epoch = psf[idx[0]].primary.start_mjd;
-
+        folders[k].start_epoch = reader->start_mjd;
         folders[k].prepare(databuf);
 
         if (vm.count("single"))
         {
             if (vm.count("t2predictor") or vm.count("parfile"))
             {
-                MJD block_epoch_start = folders[k].start_epoch + 0.5*tsamp;
+                MJD block_epoch_start = folders[k].start_epoch + 0.5*reader->tsamp;
                 phase[k] = folders[k].predictor.get_phase(block_epoch_start.to_day(), folders[k].freqref);
                 phase[k] += 1.;
                 MJD block_epoch_end(folders[k].predictor.get_phase_inverse(phase[k], folders[k].freqref));
                 
-                blocksize[k] = (block_epoch_end-block_epoch_start).to_second()/tsamp;
+                blocksize[k] = (block_epoch_end-block_epoch_start).to_second()/reader->tsamp;
             }
             else
             {
-                blocksize[k] = folders[k].fold_period/tsamp;
+                blocksize[k] = folders[k].fold_period/reader->tsamp;
             }
         }
 
@@ -386,170 +310,95 @@ int main(int argc, const char *argv[])
         writers[k].rootname = arname;
 
         writers[k].template_file = vm["template"].as<std::string>();
-        writers[k].ibeam = ibeam;
-        writers[k].src_name = src_name;
-        writers[k].telescop = s_telescope;
-        writers[k].ra = s_ra;
-        writers[k].dec = s_dec;
+        writers[k].ibeam = std::stoi(reader->beam);
+        writers[k].src_name = reader->source_name;
+        writers[k].telescop = reader->telescope;
+        writers[k].ra = reader->ra;
+        writers[k].dec = reader->dec;
         writers[k].dm = dms[k];
         
         writers[k].prepare(folders[k]);
     }
 
-	long int ntot = 0;
-	long int count = 0;
-    long int bcnt1 = 0;
-    long int intcnt = 0;
+	long int intcnt = 0;
 
-	for (long int idxn=0; idxn<npsf; idxn++)
+	while (!reader->is_end)
 	{
-		long int n = idx[idxn];
-        long int ns_psfn = 0;
+		if (reader->read_data(databuf, ndump) != ndump) break;
 
-		psf[n].open();
-		psf[n].primary.load(psf[n].fptr);
-		psf[n].load_mode();
-		psf[n].subint.load_header(psf[n].fptr);
-#ifdef MEERKAT_PTUSE
-		double zero_off = psf[n].subint.zero_off;
-#endif
+		size_t ns_psfn = reader->get_count_curfile();
+		size_t ntot = reader->get_count();
+		MJD start_mjd_curfile = reader->get_start_mjd_curfile();
+		double tsamp_curfile = reader->get_tsamp_curfile();
 
-		for (long int s=0; s<psf[n].subint.nsubint; s++)
+		for (long int ipsr=0; ipsr<npulsar; ipsr++)
 		{
-			if (verbose)
+			int nleft = ndump;
+			while (nleft)
 			{
-				cerr<<"\r\rfinish "<<setprecision(2)<<fixed<<tsamp*count<<" seconds ";
-				cerr<<"("<<100.*count/ntotal<<"%)";
-			}
-
-#ifdef MEERKAT_PTUSE
-			psf[n].subint.load_integration(psf[n].fptr, s, it);
-#else
-			psf[n].subint.load_integration_data(psf[n].fptr, s, it);
-#endif
-
-			for (long int i=0; i<it.nsblk; i++)
-			{
-				count++;
-
-                if (it.dtype == Integration::UINT8)
-                {
-                    for (long int k=0; k<nifs; k++)
-                    {
-                        for (long int j=0; j<nchans; j++)
-                        {
-#ifdef MEERKAT_PTUSE
-							databuf.buffer[bcnt1*nifs*nchans+k*nchans+j] = it.weights[j] * ((((unsigned char *)(it.data))[i*nifs*nchans+k*nchans+j] - zero_off) * it.scales[k*nchans+j] + it.offsets[k*nchans+j]);
-#else
-                            databuf.buffer[bcnt1*nifs*nchans+k*nchans+j] = ((unsigned char *)(it.data))[i*nifs*nchans+k*nchans+j];
-#endif
-                        }
-                    }
-                }
-                else if (it.dtype == Integration::FLOAT)
-                {
-                    for (long int k=0; k<nifs; k++)
-                    {
-                        for (long int j=0; j<nchans; j++)
-                        {
-                            databuf.buffer[bcnt1*nifs*nchans+k*nchans+j] = ((float *)(it.data))[i*nifs*nchans+k*nchans+j];
-                        }
-                    }
-                }
-                else
-                {
-                    cerr<<"Error: data type is not support"<<endl;
-                }
-
-                bcnt1++;
-				ntot++;
-                ns_psfn++;
-
-				if (ntot%ndump == 0)
+				if (!lsm)
+					folders[ipsr].run(databuf.buffer.begin()+(databuf.nsamples-nleft)*databuf.nchans);
+				else
+					folders[ipsr].runLSM(databuf.buffer.begin()+(databuf.nsamples-nleft)*databuf.nchans);
+				
+				if (folders[ipsr].cnt == blocksize[ipsr])
 				{
-                    for (long int ipsr=0; ipsr<npulsar; ipsr++)
-                    {
-                        int nleft = ndump;
-                        while (nleft)
-                        {
-                            if (!lsm)
-                                folders[ipsr].run(databuf.buffer.begin()+(databuf.nsamples-nleft)*databuf.nchans);
-                            else
-                                folders[ipsr].runLSM(databuf.buffer.begin()+(databuf.nsamples-nleft)*databuf.nchans);
-                            
-                            if (folders[ipsr].cnt == blocksize[ipsr])
-                            {
-                                if (!lsm)
-                                    folders[ipsr].flush();
+					if (!lsm)
+						folders[ipsr].flush();
+					else
+						folders[ipsr].flushLSM();
+
+					writers[ipsr].run(folders[ipsr]);
+
+					if (!contiguous)
+                                    folders[ipsr].start_epoch = start_mjd_curfile + (ns_psfn - nleft + 1) * tsamp_curfile;
                                 else
-                                    folders[ipsr].flushLSM();
+                                    folders[ipsr].start_epoch = reader->start_mjd + (ntot - nleft + 1) * tsamp_curfile;
+					if (vm.count("single"))
+					{
+						if (vm.count("t2predictor") or vm.count("parfile"))
+						{
+							MJD block_epoch_start = folders[ipsr].start_epoch + 0.5*reader->tsamp;
+							phase[ipsr] += 1.;
+							MJD block_epoch_end(folders[ipsr].predictor.get_phase_inverse(phase[ipsr], folders[ipsr].freqref));
+							
+							blocksize[ipsr] = (block_epoch_end-block_epoch_start).to_second()/reader->tsamp;
+						}
+						else
+						{
+							blocksize[ipsr] = folders[ipsr].fold_period/reader->tsamp;
+						}
+					}
 
-                                writers[ipsr].run(folders[ipsr]);
+					if (++intcnt == nsub)
+					{
+						mjd_tmp = start_mjd_curfile + (ns_psfn - nleft + 1) * tsamp_curfile;
+						mjd_tmp.format();
+						mjd_tmp.to_date(arname, 4096, format);
+						for (long int ipsr=0; ipsr<npulsar; ipsr++)
+						{
+							writers[ipsr].close();
+							
+							if (vm.count("t2predictor") or vm.count("parfile"))
+							{
+								long double phase = floor(folders[ipsr].predictor.get_phase(mjd_tmp.to_day(), folders[ipsr].freqref));
+								mjd_tmp.format(folders[ipsr].predictor.get_phase_inverse(phase, folders[ipsr].freqref));
+							}
 
-                                if (!contiguous)
-                                    folders[ipsr].start_epoch = psf[n].primary.start_mjd+(ns_psfn-nleft+1)*psf[n].subint.tbin;
-                                else
-                                    folders[ipsr].start_epoch = psf[idx[0]].primary.start_mjd+(ntot-nleft+1)*psf[n].subint.tbin;
+							writers[ipsr].start_mjd = mjd_tmp;
+							writers[ipsr].rootname = arname;
+							
+							writers[ipsr].prepare(folders[ipsr]);
+						}
 
-                                if (vm.count("single"))
-                                {
-                                    if (vm.count("t2predictor") or vm.count("parfile"))
-                                    {
-                                        MJD block_epoch_start = folders[ipsr].start_epoch + 0.5*tsamp;
-                                        phase[ipsr] += 1.;
-                                        MJD block_epoch_end(folders[ipsr].predictor.get_phase_inverse(phase[ipsr], folders[ipsr].freqref));
-                                        
-                                        blocksize[ipsr] = (block_epoch_end-block_epoch_start).to_second()/tsamp;
-                                    }
-                                    else
-                                    {
-                                        blocksize[ipsr] = folders[ipsr].fold_period/tsamp;
-                                    }
-                                }
-
-                                if (++intcnt == nsub)
-                                {
-                                    mjd_tmp = psf[n].primary.start_mjd + (ns_psfn-nleft+1)*psf[n].subint.tbin;
-                                    mjd_tmp.format();
-                                    mjd_tmp.to_date(arname, 4096, format);
-                                    for (long int ipsr=0; ipsr<npulsar; ipsr++)
-                                    {
-                                        writers[ipsr].close();
-                                        
-                                        if (vm.count("t2predictor") or vm.count("parfile"))
-                                        {
-                                            long double phase = floor(folders[ipsr].predictor.get_phase(mjd_tmp.to_day(), folders[ipsr].freqref));
-                                            mjd_tmp.format(folders[ipsr].predictor.get_phase_inverse(phase, folders[ipsr].freqref));
-                                        }
-
-                                        writers[ipsr].start_mjd = mjd_tmp;
-                                        writers[ipsr].rootname = arname;
-                                        
-                                        writers[ipsr].prepare(folders[ipsr]);
-                                    }
-
-                                    intcnt = 0;
-                                }
-                            }
-
-                            nleft--;
-                        }
-                    }
-
-                    bcnt1 = 0;
+						intcnt = 0;
+					}
 				}
 
-                if (ns_psfn == psf[n].subint.nsamples)
-				{
-					goto next;
-				}
+				nleft--;
 			}
 		}
-        next:
-		psf[n].close();
 	}
-
-    delete [] psf;
 
     for (long int ipsr=0; ipsr<npulsar; ipsr++)
     {
@@ -560,8 +409,8 @@ int main(int argc, const char *argv[])
 
 	if (verbose)
 	{
-		cerr<<"\r\rfinish "<<setprecision(2)<<fixed<<tsamp*count<<" seconds ";
-		cerr<<"("<<100.*count/ntotal<<"%)"<<endl;
+		cerr<<"\r\rfinish "<<setprecision(2)<<fixed<<reader->tsamp*reader->get_count()<<" seconds ";
+		cerr<<"("<<100.*reader->get_count()/reader->nsamples<<"%)"<<endl;
 	}
 
 	return 0;
