@@ -60,6 +60,9 @@ void ArchiveWriter::prepare(PulsarFolder &pulsarfolder)
     strcpy(fits.primary.ibeam, to_string(ibeam).c_str());
 
     fits.primary.chan_dm = dm;
+	fits.primary.obsfreq = 0.5 * (frequencies.back() + frequencies.front());
+	fits.primary.obsbw = (frequencies.back() - frequencies.front()) / (frequencies.size() - 1) * frequencies.size();
+	fits.primary.obsnchan = frequencies.size();
 
     fits.subint.mode = Integration::FOLD;
     fits.subint.dtype = Integration::SHORT;
